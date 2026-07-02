@@ -12,6 +12,9 @@ import {
   ForwardMessageDto,
   ReactMessageDto,
   DeleteMessageDto,
+  StarMessageDto,
+  EditMessageDto,
+  MarkMessagesReadDto,
 } from './dto/message-actions.dto';
 import { RequireRole } from '../auth/decorators/auth.decorators';
 import { ApiKeyRole } from '../auth/entities/api-key.entity';
@@ -346,6 +349,67 @@ export class MessageController {
   ): Promise<{ success: boolean }> {
     await this.messageService.deleteMessage(sessionId, dto);
     return { success: true };
+  }
+
+  // ========== Star / Edit / Read / Media ==========
+
+  @Post('star')
+  @HttpCode(HttpStatus.OK)
+  @RequireRole(ApiKeyRole.OPERATOR)
+  @ApiOperation({ summary: 'Star or unstar a message' })
+  @ApiParam({ name: 'sessionId', description: 'Session ID' })
+  @ApiResponse({ status: 200, description: 'Message star state updated' })
+  @ApiResponse({ status: 400, description: 'Session not active or message not found' })
+  async starMessage(@Param('sessionId') sessionId: string, @Body() dto: StarMessageDto): Promise<{ success: boolean }> {
+    await this.messageService.starMessage(sessionId, dto);
+    return { success: true };
+  }
+
+  @Post('edit')
+  @HttpCode(HttpStatus.OK)
+  @RequireRole(ApiKeyRole.OPERATOR)
+  @ApiOperation({ summary: 'Edit a previously-sent message (WhatsApp allows this within ~15 min)' })
+  @ApiParam({ name: 'sessionId', description: 'Session ID' })
+  @ApiResponse({ status: 200, description: 'Message edited', type: MessageResponseDto })
+  @ApiResponse({ status: 400, description: 'Session not active, message not found, or edit window passed' })
+  async editMessage(
+    @Param('sessionId') sessionId: string,
+    @Body() dto: EditMessageDto,
+  ): Promise<MessageResponseDto> {
+    return this.messageService.editMessage(sessionId, dto);
+  }
+
+  @Post('read')
+  @HttpCode(HttpStatus.OK)
+  @RequireRole(ApiKeyRole.OPERATOR)
+  @ApiOperation({ summary: 'Mark messages as read (blue ticks). Empty messageIds marks the whole chat.' })
+  @ApiParam({ name: 'sessionId', description: 'Session ID' })
+  @ApiResponse({ status: 200, description: 'Messages marked read' })
+  @ApiResponse({ status: 400, description: 'Session not active' })
+  async markRead(
+    @Param('sessionId') sessionId: string,
+    @Body() dto: MarkMessagesReadDto,
+  ): Promise<{ success: boolean }> {
+    return this.messageService.markMessagesRead(sessionId, dto);
+  }
+
+  @Get(':chatId/:messageId/media')
+  @ApiOperation({
+    summary: 'Download a single message\'s media on demand (O(1), avoids a full history scan)',
+  })
+  @ApiParam({ name: 'sessionId', description: 'Session ID' })
+  @ApiParam({ name: 'chatId', description: 'Chat ID containing the message' })
+  @ApiParam({ name: 'messageId', description: 'Message ID to download media for' })
+  @ApiResponse({ status: 200, description: 'Media as { base64, mimetype, filename }' })
+  @ApiResponse({ status: 404, description: 'Message has no media' })
+  async getMessageMedia(
+    @Param('sessionId') sessionId: string,
+    @Param('chatId') chatId: string,
+    @Param('messageId') messageId: string,
+  ): Promise<{ base64: string; mimetype: string; filename?: string } | { error: string }> {
+    const media = await this.messageService.downloadMessageMedia(sessionId, chatId, messageId);
+    if (!media) return { error: 'No media' };
+    return media;
   }
 
   // ========== Bulk Messaging ==========

@@ -1,5 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsOptional, IsLatitude, IsLongitude, IsBoolean, MaxLength } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsLatitude,
+  IsLongitude,
+  IsBoolean,
+  MaxLength,
+  IsArray,
+} from 'class-validator';
 
 /**
  * Validated DTOs for the message action endpoints. These replaced inline
@@ -121,4 +130,54 @@ export class DeleteMessageDto {
   @IsOptional()
   @IsBoolean()
   forEveryone?: boolean;
+}
+
+export class StarMessageDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  chatId: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  messageId: string;
+
+  @ApiProperty({ description: 'true = star, false = unstar', example: true })
+  @IsBoolean()
+  star: boolean;
+}
+
+export class EditMessageDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  chatId: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  messageId: string;
+
+  @ApiProperty({ description: 'New message text. WhatsApp only allows editing within ~15 minutes of sending.' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(65536)
+  text: string;
+}
+
+export class MarkMessagesReadDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  chatId: string;
+
+  @ApiProperty({
+    description: 'Message IDs to mark read (blue ticks). Pass an empty array to mark the whole chat read.',
+    type: [String],
+    example: ['ABC123'],
+  })
+  @IsArray()
+  @IsString({ each: true })
+  messageIds: string[];
 }

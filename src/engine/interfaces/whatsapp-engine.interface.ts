@@ -450,6 +450,19 @@ export interface IWhatsAppEngine {
   reactToMessage(chatId: string, messageId: string, emoji: string): Promise<void>;
   getMessageReactions(chatId: string, messageId: string): Promise<MessageReaction[]>;
 
+  // Message state
+  /** Star or unstar a message. */
+  starMessage(chatId: string, messageId: string, star: boolean): Promise<void>;
+  /** Edit a previously-sent message's text (WhatsApp allows this within ~15 min). */
+  editMessage(chatId: string, messageId: string, text: string): Promise<MessageResult>;
+  /** Mark specific messages in a chat as read (blue ticks). Empty list = whole chat. */
+  markMessagesRead(chatId: string, messageIds: string[]): Promise<boolean>;
+  /**
+   * Download a single message's media bytes on demand (O(1)), avoiding a full
+   * history re-scan. Returns null when the message has no media.
+   */
+  downloadMessageMedia(chatId: string, messageId: string): Promise<{ base64: string; mimetype: string; filename?: string } | null>;
+
   // Contacts
   getContacts(): Promise<Contact[]>;
   getContactById(contactId: string): Promise<Contact | null>;
@@ -526,6 +539,19 @@ export interface IWhatsAppEngine {
   sendSeen(chatId: string): Promise<boolean>;
   markUnread(chatId: string): Promise<boolean>;
   deleteChat(chatId: string): Promise<boolean>;
+  /** Archive or unarchive a chat. Returns false if the engine could not apply it. */
+  setArchived(chatId: string, archive: boolean): Promise<boolean>;
+  /**
+   * Mute or unmute a chat. `durationSecs` (when muting) limits the mute window;
+   * omit/0 mutes indefinitely. Returns false if the engine could not apply it.
+   */
+  setMuted(chatId: string, mute: boolean, durationSecs?: number): Promise<boolean>;
+  /** Pin or unpin a chat (WhatsApp caps pins at 3). Returns false on failure. */
+  setPinned(chatId: string, pin: boolean): Promise<boolean>;
+  /** Clear a chat's message history while keeping the chat. Returns false on failure. */
+  clearChat(chatId: string): Promise<boolean>;
+  /** Set global presence for the linked account: 'available' (online) or 'unavailable'. Best-effort. */
+  setPresence(presence: 'available' | 'unavailable'): Promise<void>;
   /**
    * Send a typing/recording presence indicator to a chat, or clear it (`paused`).
    * Engine-agnostic and best-effort: engines without a presence concept should no-op.

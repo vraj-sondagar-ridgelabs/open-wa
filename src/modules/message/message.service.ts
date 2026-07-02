@@ -542,6 +542,44 @@ export class MessageService {
     }
   }
 
+  async starMessage(sessionId: string, dto: { chatId: string; messageId: string; star: boolean }): Promise<void> {
+    const engine = this.getEngine(sessionId);
+    await engine.starMessage(dto.chatId, dto.messageId, dto.star);
+  }
+
+  async editMessage(
+    sessionId: string,
+    dto: { chatId: string; messageId: string; text: string },
+  ): Promise<MessageResponseDto> {
+    const engine = this.getEngine(sessionId);
+    const result = await engine.editMessage(dto.chatId, dto.messageId, dto.text);
+    // Reflect the new text in the local store so history reads show the edit.
+    try {
+      await this.messageRepository.update(
+        { sessionId, waMessageId: dto.messageId },
+        { body: dto.text },
+      );
+    } catch (err) {
+      this.logger.warn(`Failed to update edited message ${dto.messageId} in store`, { error: String(err) });
+    }
+    // Map the engine MessageResult ({ id, timestamp }) to the response DTO shape.
+    return { messageId: result.id, timestamp: result.timestamp };
+  }
+
+  async markMessagesRead(
+    sessionId: string,
+    dto: { chatId: string; messageIds: string[] },
+  ): Promise<{ success: boolean }> {
+    const engine = this.getEngine(sessionId);
+    const success = await engine.markMessagesRead(dto.chatId, dto.messageIds ?? []);
+    return { success };
+  }
+
+  async downloadMessageMedia(sessionId: string, chatId: string, messageId: string) {
+    const engine = this.getEngine(sessionId);
+    return engine.downloadMessageMedia(chatId, messageId);
+  }
+
   private getEngine(sessionId: string) {
     const engine = this.sessionService.getEngine(sessionId);
     if (!engine) {

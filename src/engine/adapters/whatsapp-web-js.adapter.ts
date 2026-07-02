@@ -1549,6 +1549,58 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
     this.logger.log(`Deleted message ${messageId} from chat ${chatId} (forEveryone: ${forEveryone})`);
   }
 
+  // Find a message by id within a chat (shared by star/edit/read/media). Returns
+  // the wwebjs Message or throws MessageNotFoundError, matching deleteMessage.
+  private async findMessageInChat(chatId: string, messageId: string) {
+    const chat = await this.client!.getChatById(chatId);
+    const messages = await chat.fetchMessages({ limit: 100 });
+    const message = messages.find(m => m.id._serialized === messageId || m.id.id === messageId);
+    if (!message) throw new MessageNotFoundError(messageId, chatId);
+    return message;
+  }
+
+  async starMessage(chatId: string, messageId: string, star: boolean): Promise<void> {
+    this.ensureReady();
+    const message = await this.findMessageInChat(chatId, messageId);
+    await (star ? message.star() : message.unstar());
+  }
+
+  async editMessage(chatId: string, messageId: string, text: string): Promise<MessageResult> {
+    this.ensureReady();
+    const message = await this.findMessageInChat(chatId, messageId);
+    const edited = await message.edit(text);
+    return {
+      id: edited?.id?._serialized ?? messageId,
+      timestamp: Math.floor(Date.now() / 1000),
+    };
+  }
+
+  async markMessagesRead(chatId: string, _messageIds: string[]): Promise<boolean> {
+    this.ensureReady();
+    if (isChannelJid(chatId)) return false;
+    try {
+      // wwebjs marks the whole chat seen (no per-message read API); the messageIds
+      // arg is accepted for interface parity but seen applies chat-wide.
+      const chat = await this.client!.getChatById(chatId);
+      return await chat.sendSeen();
+    } catch (error) {
+      this.logger.error(`Error marking messages read in ${chatId}`, String(error));
+      return false;
+    }
+  }
+
+  async downloadMessageMedia(
+    chatId: string,
+    messageId: string,
+  ): Promise<{ base64: string; mimetype: string; filename?: string } | null> {
+    this.ensureReady();
+    const message = await this.findMessageInChat(chatId, messageId);
+    if (!message.hasMedia) return null;
+    const media = await message.downloadMedia();
+    if (!media?.data) return null;
+    return { base64: media.data, mimetype: media.mimetype, filename: media.filename ?? undefined };
+  }
+
   // Get Profile Picture
   async getProfilePicture(contactId: string): Promise<string | null> {
     this.ensureReady();
@@ -1754,6 +1806,74 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
     } catch (error) {
       this.logger.error(`Error deleting chat ${chatId}`, String(error));
       return false;
+    }
+  }
+
+  async setArchived(chatId: string, archive: boolean): Promise<boolean> {
+    this.ensureReady();
+    if (isChannelJid(chatId)) return false; // channels have no archive state
+    try {
+      const chat = await this.client!.getChatById(chatId);
+      await (archive ? chat.archive() : chat.unarchive());
+      return true;
+    } catch (error) {
+      this.logger.error(`Error ${archive ? 'archiving' : 'unarchiving'} chat ${chatId}`, String(error));
+      return false;
+    }
+  }
+
+  async setMuted(chatId: string, mute: boolean, durationSecs?: number): Promise<boolean> {
+    this.ensureReady();
+    if (isChannelJid(chatId)) return false; // channels have no mute state
+    try {
+      const chat = await this.client!.getChatById(chatId);
+      if (mute) {
+        // wwebjs Chat.mute(unmuteDate?) — a Date to unmute at, or omit for indefinite.
+        const unmuteDate =
+          durationSecs && durationSecs > 0 ? new Date(Date.now() + durationSecs * 1000) : undefined;
+        await chat.mute(unmuteDate);
+      } else {
+        await chat.unmute();
+      }
+      return true;
+    } catch (error) {
+      this.logger.error(`Error ${mute ? 'muting' : 'unmuting'} chat ${chatId}`, String(error));
+      return false;
+    }
+  }
+
+  async setPinned(chatId: string, pin: boolean): Promise<boolean> {
+    this.ensureReady();
+    if (isChannelJid(chatId)) return false; // channels are not pinnable via Chat.pin
+    try {
+      const chat = await this.client!.getChatById(chatId);
+      // Chat.pin()/unpin() resolve a boolean (false if the 3-pin limit is hit).
+      return await (pin ? chat.pin() : chat.unpin());
+    } catch (error) {
+      this.logger.error(`Error ${pin ? 'pinning' : 'unpinning'} chat ${chatId}`, String(error));
+      return false;
+    }
+  }
+
+  async clearChat(chatId: string): Promise<boolean> {
+    this.ensureReady();
+    if (isChannelJid(chatId)) return false;
+    try {
+      const chat = await this.client!.getChatById(chatId);
+      return await chat.clearMessages();
+    } catch (error) {
+      this.logger.error(`Error clearing chat ${chatId}`, String(error));
+      return false;
+    }
+  }
+
+  async setPresence(presence: 'available' | 'unavailable'): Promise<void> {
+    this.ensureReady();
+    // wwebjs: sendPresenceAvailable() / sendPresenceUnavailable().
+    if (presence === 'available') {
+      await this.client!.sendPresenceAvailable();
+    } else {
+      await this.client!.sendPresenceUnavailable();
     }
   }
 

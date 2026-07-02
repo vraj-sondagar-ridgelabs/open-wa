@@ -609,6 +609,58 @@ export class BaileysAdapter implements IWhatsAppEngine {
     await this.sock!.sendMessage(chatId, { delete: target.key });
   }
 
+  async starMessage(chatId: string, messageId: string, star: boolean): Promise<void> {
+    this.ensureReady();
+    const target = await this.requireStored(messageId);
+    await this.sock!.chatModify(
+      { star: { messages: [{ id: target.key.id!, fromMe: !!target.key.fromMe }], star } },
+      chatId,
+    );
+  }
+
+  async editMessage(chatId: string, messageId: string, text: string): Promise<MessageResult> {
+    this.ensureReady();
+    const target = await this.requireStored(messageId);
+    // Baileys edits by re-sending with `edit: <key>`.
+    const sent = await this.sock!.sendMessage(chatId, { text, edit: target.key });
+    return {
+      id: sent?.key?.id ?? messageId,
+      timestamp: Math.floor(Date.now() / 1000),
+    };
+  }
+
+  async markMessagesRead(chatId: string, messageIds: string[]): Promise<boolean> {
+    this.ensureReady();
+    if (messageIds.length === 0) {
+      // Whole-chat read: fall back to marking the last known message seen.
+      const last = this.sessionStore.lastMessage(chatId);
+      if (!last) return false;
+      await this.sock!.readMessages([last.key]);
+      return true;
+    }
+    const keys = [];
+    for (const id of messageIds) {
+      try {
+        const stored = await this.requireStored(id);
+        if (stored?.key) keys.push(stored.key);
+      } catch {
+        // message not in the store — skip it, best-effort read
+      }
+    }
+    if (keys.length === 0) return false;
+    await this.sock!.readMessages(keys);
+    return true;
+  }
+
+  async downloadMessageMedia(
+    _chatId: string,
+    _messageId: string,
+  ): Promise<{ base64: string; mimetype: string; filename?: string } | null> {
+    // The minimal Baileys slice has no media store wired; media is served via
+    // getChatHistory(includeMedia=true). Report unsupported so callers fall back.
+    return this.unsupported('downloadMessageMedia');
+  }
+
   // ----- Groups -----
 
   async getGroups(): Promise<Group[]> {
@@ -786,6 +838,53 @@ export class BaileysAdapter implements IWhatsAppEngine {
       chatId,
     );
     return true;
+  }
+
+  async setArchived(chatId: string, archive: boolean): Promise<boolean> {
+    this.ensureReady();
+    const last = this.sessionStore.lastMessage(chatId);
+    if (!last) {
+      return false; // Baileys' archive toggle needs the last message to anchor the mutation
+    }
+    await this.sock!.chatModify(
+      { archive, lastMessages: [{ key: last.key, messageTimestamp: last.timestamp }] },
+      chatId,
+    );
+    return true;
+  }
+
+  async setMuted(chatId: string, mute: boolean, durationSecs?: number): Promise<boolean> {
+    this.ensureReady();
+    // Baileys' mute is a timestamp (ms) to mute UNTIL, or null to unmute. A 0/absent
+    // duration means "indefinite" — Baileys represents that with a far-future value (-1
+    // is treated as forever by WhatsApp; we pass a large ms offset for portability).
+    const muteMs = mute
+      ? (durationSecs && durationSecs > 0 ? durationSecs * 1000 : 8 * 60 * 60 * 1000 * 1000) // ~long
+      : null;
+    await this.sock!.chatModify({ mute: muteMs }, chatId);
+    return true;
+  }
+
+  async setPinned(chatId: string, pin: boolean): Promise<boolean> {
+    this.ensureReady();
+    await this.sock!.chatModify({ pin }, chatId);
+    return true;
+  }
+
+  async clearChat(chatId: string): Promise<boolean> {
+    this.ensureReady();
+    const last = this.sessionStore.lastMessage(chatId);
+    if (!last) return false; // Baileys' clear needs the last message to anchor the mutation
+    await this.sock!.chatModify(
+      { clear: 'all', lastMessages: [{ key: last.key, messageTimestamp: last.timestamp }] } as never,
+      chatId,
+    );
+    return true;
+  }
+
+  async setPresence(presence: 'available' | 'unavailable'): Promise<void> {
+    this.ensureReady();
+    await this.sock!.sendPresenceUpdate(presence);
   }
 
   // ----- Gated: not supported by this minimal slice (no store) -----

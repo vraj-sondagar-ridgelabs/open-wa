@@ -10,6 +10,11 @@ import {
   SendChatStateDto,
   RequestPairingCodeDto,
   PairingCodeResponseDto,
+  ArchiveChatDto,
+  MuteChatDto,
+  PinChatDto,
+  ClearChatDto,
+  SetPresenceDto,
 } from './dto';
 import { Session } from './entities/session.entity';
 import { ChatSummary } from '../../engine/interfaces/whatsapp-engine.interface';
@@ -275,6 +280,66 @@ export class SessionController {
   async deleteChat(@Param('id') id: string, @Body() dto: DeleteChatDto): Promise<{ success: boolean }> {
     const success = await this.sessionService.deleteChat(id, dto.chatId);
     return { success };
+  }
+
+  @Post(':id/chats/archive')
+  @RequireRole(ApiKeyRole.OPERATOR)
+  @ApiOperation({ summary: 'Archive or unarchive a chat' })
+  @ApiParam({ name: 'id', description: 'Session ID' })
+  @ApiResponse({ status: 200, description: 'Chat archive state updated' })
+  @ApiResponse({ status: 400, description: 'Session not ready' })
+  @ApiResponse({ status: 404, description: 'Session not found' })
+  async archiveChat(@Param('id') id: string, @Body() dto: ArchiveChatDto): Promise<{ success: boolean }> {
+    const success = await this.sessionService.setArchived(id, dto.chatId, dto.archive);
+    return { success };
+  }
+
+  @Post(':id/chats/mute')
+  @RequireRole(ApiKeyRole.OPERATOR)
+  @ApiOperation({ summary: 'Mute or unmute a chat (optional durationSecs; omit for indefinite)' })
+  @ApiParam({ name: 'id', description: 'Session ID' })
+  @ApiResponse({ status: 200, description: 'Chat mute state updated' })
+  @ApiResponse({ status: 400, description: 'Session not ready' })
+  @ApiResponse({ status: 404, description: 'Session not found' })
+  async muteChat(@Param('id') id: string, @Body() dto: MuteChatDto): Promise<{ success: boolean }> {
+    const success = await this.sessionService.setMuted(id, dto.chatId, dto.mute, dto.durationSecs);
+    return { success };
+  }
+
+  @Post(':id/chats/pin')
+  @RequireRole(ApiKeyRole.OPERATOR)
+  @ApiOperation({ summary: 'Pin or unpin a chat to the top (WhatsApp allows at most 3 pins)' })
+  @ApiParam({ name: 'id', description: 'Session ID' })
+  @ApiResponse({ status: 200, description: 'Chat pin state updated (success=false if the 3-pin limit was hit)' })
+  @ApiResponse({ status: 400, description: 'Session not ready' })
+  @ApiResponse({ status: 404, description: 'Session not found' })
+  async pinChat(@Param('id') id: string, @Body() dto: PinChatDto): Promise<{ success: boolean }> {
+    const success = await this.sessionService.setPinned(id, dto.chatId, dto.pin);
+    return { success };
+  }
+
+  @Post(':id/chats/clear')
+  @RequireRole(ApiKeyRole.OPERATOR)
+  @ApiOperation({ summary: 'Clear a chat\'s message history (keeps the chat)' })
+  @ApiParam({ name: 'id', description: 'Session ID' })
+  @ApiResponse({ status: 200, description: 'Chat cleared' })
+  @ApiResponse({ status: 400, description: 'Session not ready' })
+  @ApiResponse({ status: 404, description: 'Session not found' })
+  async clearChat(@Param('id') id: string, @Body() dto: ClearChatDto): Promise<{ success: boolean }> {
+    const success = await this.sessionService.clearChat(id, dto.chatId);
+    return { success };
+  }
+
+  @Post(':id/presence')
+  @RequireRole(ApiKeyRole.OPERATOR)
+  @ApiOperation({ summary: 'Set the linked account presence (available/unavailable)' })
+  @ApiParam({ name: 'id', description: 'Session ID' })
+  @ApiResponse({ status: 200, description: 'Presence updated' })
+  @ApiResponse({ status: 400, description: 'Session not ready' })
+  @ApiResponse({ status: 404, description: 'Session not found' })
+  async setPresence(@Param('id') id: string, @Body() dto: SetPresenceDto): Promise<{ success: boolean }> {
+    await this.sessionService.setPresence(id, dto.presence);
+    return { success: true };
   }
 
   @Post(':id/chats/typing')

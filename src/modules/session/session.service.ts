@@ -1348,6 +1348,51 @@ export class SessionService implements OnModuleDestroy, OnModuleInit, OnApplicat
     return engine.deleteChat(chatId);
   }
 
+  async setArchived(id: string, chatId: string, archive: boolean): Promise<boolean> {
+    await this.findOne(id);
+    const engine = this.engines.get(id);
+    if (!engine) {
+      throw new BadRequestException('Session is not started');
+    }
+    return engine.setArchived(chatId, archive);
+  }
+
+  async setMuted(id: string, chatId: string, mute: boolean, durationSecs?: number): Promise<boolean> {
+    await this.findOne(id);
+    const engine = this.engines.get(id);
+    if (!engine) {
+      throw new BadRequestException('Session is not started');
+    }
+    return engine.setMuted(chatId, mute, durationSecs);
+  }
+
+  async setPinned(id: string, chatId: string, pin: boolean): Promise<boolean> {
+    await this.findOne(id);
+    const engine = this.engines.get(id);
+    if (!engine) {
+      throw new BadRequestException('Session is not started');
+    }
+    return engine.setPinned(chatId, pin);
+  }
+
+  async clearChat(id: string, chatId: string): Promise<boolean> {
+    await this.findOne(id);
+    const engine = this.engines.get(id);
+    if (!engine) {
+      throw new BadRequestException('Session is not started');
+    }
+    return engine.clearChat(chatId);
+  }
+
+  async setPresence(id: string, presence: 'available' | 'unavailable'): Promise<void> {
+    await this.findOne(id);
+    const engine = this.engines.get(id);
+    if (!engine) {
+      throw new BadRequestException('Session is not started');
+    }
+    await engine.setPresence(presence);
+  }
+
   async sendChatState(id: string, chatId: string, state: ChatState): Promise<void> {
     await this.findOne(id); // Verify session exists
     const engine = this.engines.get(id);

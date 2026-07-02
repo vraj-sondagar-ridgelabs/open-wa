@@ -33,6 +33,14 @@ export class BaileysSessionStore {
   private readonly lastMessages = new Map<string, LastMessage>();
   private readonly lidToPn = new Map<string, string>();
   /**
+   * Per-chat rolling history of recent raw Baileys messages, so getChatHistory()
+   * can serve them (Baileys has no fetch-all; WA Web protocol only streams NEW
+   * messages after login). Capped per chat to bound memory. Fed by recordMessage
+   * from live `messages.upsert` AND the `messaging-history.set` re-sync on connect.
+   */
+  private readonly history = new Map<string, WAMessage[]>();
+  private static readonly HISTORY_CAP = 200;
+  /**
    * Per-chat disappearing-messages timer (seconds) learned from inbound messages (#473), the reliable
    * source for it: `Chat.ephemeralExpiration` (from `chats.*`/history sync) is empirically absent for a
    * long-standing timer after a reconnect (observed live: 0 of 159 cached chats carried it). Keyed by
@@ -120,12 +128,41 @@ export class BaileysSessionStore {
     // neutral JID so an outbound send addressed in either dialect (phone or @lid) finds it.
     this.recordEphemeralFromMessage(chatId, msg);
     const timestamp = this.toUnixSeconds(msg.messageTimestamp);
+
+    // Append to the per-chat rolling history (dedup by message id; kept sorted by
+    // timestamp; capped). This backs getChatHistory() for the Baileys engine.
+    this.appendHistory(chatId, msg, timestamp);
+
     const existing = this.lastMessages.get(chatId);
     if (existing && existing.timestamp >= timestamp) {
-      return; // keep the newest
+      return; // keep the newest for lastMessage (history above already recorded it)
     }
     const text = msg.message?.conversation ?? msg.message?.extendedTextMessage?.text ?? '';
     this.lastMessages.set(chatId, { key: msg.key, timestamp, text });
+  }
+
+  private appendHistory(chatId: string, msg: WAMessage, timestamp: number): void {
+    const id = msg.key?.id;
+    if (!id) return;
+    const arr = this.history.get(chatId) ?? [];
+    if (arr.some(m => m.key?.id === id)) return; // dedup (re-sync can resend)
+    arr.push(msg);
+    // Keep chronological (oldest→newest); history-sync can arrive out of order.
+    arr.sort((a, b) => this.toUnixSeconds(a.messageTimestamp) - this.toUnixSeconds(b.messageTimestamp));
+    if (arr.length > BaileysSessionStore.HISTORY_CAP) {
+      arr.splice(0, arr.length - BaileysSessionStore.HISTORY_CAP); // drop oldest
+    }
+    this.history.set(chatId, arr);
+  }
+
+  /**
+   * Recent messages for a chat, newest last, up to `limit`. Matches both the raw
+   * and neutral JID so a caller addressing either dialect resolves the same chat.
+   */
+  getHistory(chatId: string, limit = 50): WAMessage[] {
+    const neutral = this.toNeutralJid(chatId);
+    const arr = this.history.get(chatId) ?? this.history.get(neutral) ?? [];
+    return limit > 0 ? arr.slice(-limit) : arr.slice();
   }
 
   /**

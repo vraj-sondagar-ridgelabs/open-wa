@@ -893,8 +893,25 @@ export class BaileysAdapter implements IWhatsAppEngine {
   getMessageReactions(_chatId: string, _messageId: string): Promise<MessageReaction[]> {
     return this.unsupported('getMessageReactions');
   }
-  getChatHistory(_chatId: string, _limit?: number, _includeMedia?: boolean): Promise<IncomingMessage[]> {
-    return this.unsupported('getChatHistory');
+  /**
+   * Serve a chat's recent history from the session store's rolling buffer. Baileys
+   * has no server-side fetch-all (WA Web protocol only streams NEW messages after
+   * login), so this returns what we've captured live + from the connect-time
+   * `messaging-history.set` re-sync. Metadata-only (no per-message media download)
+   * to keep it fast and bounded; media is fetched on demand via getMedia. This
+   * replaces the old `unsupported` stub that made every chat 500 on the Baileys
+   * engine.
+   */
+  async getChatHistory(chatId: string, limit = 50, _includeMedia = false): Promise<IncomingMessage[]> {
+    this.ensureReady();
+    const b = await this.loadLib();
+    const raw = this.sessionStore.getHistory(chatId, limit);
+    const out: IncomingMessage[] = [];
+    for (const msg of raw) {
+      const mapped = this.mapHistoryMessage(b, msg);
+      if (mapped) out.push(mapped);
+    }
+    return out;
   }
   getLabels(): Promise<Label[]> {
     return this.unsupported('getLabels');

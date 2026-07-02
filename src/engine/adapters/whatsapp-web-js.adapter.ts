@@ -62,6 +62,41 @@ import {
   withInboundDownloadTimeout,
 } from './inbound-media-cap';
 import { ConcurrencyLimiter } from './concurrency-limiter';
+import { spawn } from 'child_process';
+
+/**
+ * Transcode a base64 audio blob (any container ffmpeg reads — webm/mp4/wav) to
+ * base64 ogg/opus, which is what WhatsApp voice notes require. Browsers can't
+ * record ogg directly (Chrome records webm/opus), and wwebjs's sendAudioAsVoice
+ * chokes on webm → this makes voice notes actually send. Uses the system ffmpeg
+ * (must be on PATH). Returns null on any failure so the caller can fall back to
+ * the original bytes.
+ */
+async function transcodeToOggOpus(base64In: string, logger?: { warn: (m: string) => void }): Promise<string | null> {
+  return new Promise((resolve) => {
+    try {
+      const input = Buffer.from(base64In, 'base64');
+      // ffmpeg: read from stdin (-i pipe:0), encode opus in an ogg container, write to stdout.
+      const ff = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-i', 'pipe:0',
+        '-c:a', 'libopus', '-b:a', '32k', '-ar', '48000', '-ac', '1', '-f', 'ogg', 'pipe:1']);
+      const chunks: Buffer[] = [];
+      let errbuf = '';
+      ff.stdout.on('data', (d) => chunks.push(d));
+      ff.stderr.on('data', (d) => { errbuf += String(d); });
+      ff.on('error', (e) => { logger?.warn(`ffmpeg spawn failed (voice transcode): ${String(e)}`); resolve(null); });
+      ff.on('close', (code) => {
+        if (code === 0 && chunks.length) resolve(Buffer.concat(chunks).toString('base64'));
+        else { logger?.warn(`ffmpeg transcode exited ${code}: ${errbuf.slice(0, 200)}`); resolve(null); }
+      });
+      ff.stdin.on('error', () => {}); // ignore EPIPE if ffmpeg dies early
+      ff.stdin.write(input);
+      ff.stdin.end();
+    } catch (e) {
+      logger?.warn(`transcodeToOggOpus error: ${String(e)}`);
+      resolve(null);
+    }
+  });
+}
 
 /**
  * Map a whatsapp-web.js MessageAck integer to the neutral DeliveryStatus.
@@ -909,7 +944,17 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
   }
 
   async sendAudioMessage(chatId: string, media: MediaInput): Promise<MessageResult> {
-    return this.sendMediaMessage(chatId, media, media.ptt ? { sendAudioAsVoice: true } : undefined);
+    // For a VOICE NOTE (ptt), WhatsApp needs ogg/opus. Browsers commonly record
+    // audio/webm;codecs=opus (Chrome can't record ogg), which wwebjs's
+    // sendAudioAsVoice fails to convert → 500. Transcode to ogg/opus with the
+    // system ffmpeg first (best-effort; if ffmpeg is missing we pass the original
+    // through and let wwebjs try).
+    let outMedia = media;
+    if (media.ptt && typeof media.data === 'string' && !isHttpUrl(media.data)) {
+      const converted = await transcodeToOggOpus(media.data, this.logger);
+      if (converted) outMedia = { ...media, data: converted, mimetype: 'audio/ogg; codecs=opus' };
+    }
+    return this.sendMediaMessage(chatId, outMedia, outMedia.ptt ? { sendAudioAsVoice: true } : undefined);
   }
 
   async sendDocumentMessage(chatId: string, media: MediaInput): Promise<MessageResult> {
@@ -1519,6 +1564,17 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
       out.isStatusBroadcast = chatId === 'status@broadcast';
       const call = extractWwebjsCall(msg);
       if (call) out.call = call;
+      // Populate quoted context on history reads too (the live path does this via
+      // hasQuotedMsg/getQuotedMessage). Without this, a reply loaded from history
+      // renders as a plain message (quotedMsg was null on reload).
+      if (msg.hasQuotedMsg) {
+        try {
+          const quoted = await msg.getQuotedMessage();
+          out.quotedMessage = { id: quoted.id._serialized, body: quoted.body };
+        } catch (error) {
+          this.logger.warn(`Failed to get quoted message for ${msg.id._serialized}: ${String(error)}`);
+        }
+      }
       if (includeMedia && msg.hasMedia) {
         try {
           // Same pre-gate + limiter as live media: a large historical blob shouldn't bloat the response/heap.

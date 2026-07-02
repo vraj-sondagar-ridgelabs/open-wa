@@ -73,6 +73,12 @@ export interface IncomingMessage {
   fromMe: boolean;
   isGroup: boolean;
   /**
+   * Delivery status for an outgoing (fromMe) message, mapped from the engine ack:
+   * pending → sent (1 tick) → delivered (2 ticks) → read (2 blue). Undefined when
+   * unknown (incoming messages, or engines that don't report it).
+   */
+  status?: DeliveryStatus;
+  /**
    * True for a status/story broadcast (not a real conversation). Set by the adapter so engine-neutral
    * code can skip these without matching an engine-specific pseudo-JID (e.g. `status@broadcast`).
    */

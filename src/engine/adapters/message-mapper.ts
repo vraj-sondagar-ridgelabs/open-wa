@@ -1,4 +1,15 @@
-import { IncomingMessage, MessageContact, MessageType } from '../interfaces/whatsapp-engine.interface';
+import { DeliveryStatus, IncomingMessage, MessageContact, MessageType } from '../interfaces/whatsapp-engine.interface';
+
+/** wwebjs MessageAck int → neutral DeliveryStatus. -1 ERROR, 0 PENDING, 1 SERVER(sent),
+ *  2 DEVICE(delivered), 3 READ, 4 PLAYED (collapses to read). */
+export function ackToDeliveryStatus(ack: number | undefined): DeliveryStatus | undefined {
+  if (ack === undefined || ack === null) return undefined;
+  if (ack < 0) return 'failed';
+  if (ack >= 3) return 'read';
+  if (ack === 2) return 'delivered';
+  if (ack === 1) return 'sent';
+  return 'pending';
+}
 
 /**
  * Map a whatsapp-web.js `MessageTypes` token to the engine-neutral {@link MessageType}, so no
@@ -53,6 +64,8 @@ export interface RawMessageFields {
   author?: string;
   /** WIDs @mentioned in the message; whatsapp-web.js attaches this to every Message. */
   mentionedIds?: string[];
+  /** wwebjs MessageAck int (-1..4) — delivery state of an outgoing message. */
+  ack?: number;
   /** Raw wwebjs payload; `notifyName` carries the sender's push name without an extra lookup. */
   _data?: { notifyName?: string; ephemeralDuration?: number };
 }
@@ -80,6 +93,12 @@ export function buildIncomingMessageBase(msg: RawMessageFields): IncomingMessage
     // the adapter) so engine-neutral code can skip them without matching the literal.
     isStatusBroadcast: msg.to === 'status@broadcast' || chatId === 'status@broadcast',
   };
+
+  // Delivery status for outgoing messages (drives the 1/2/blue tick UI).
+  const status = ackToDeliveryStatus(msg.ack);
+  if (status) {
+    incoming.status = status;
+  }
 
   // In a group, `from` is the group JID, so `author` is the only way to know the real sender.
   if (msg.author) {

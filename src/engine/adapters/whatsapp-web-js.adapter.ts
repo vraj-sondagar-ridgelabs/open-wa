@@ -50,7 +50,7 @@ import {
   WwjsChannelData,
   GroupCreateResult,
 } from '../types/whatsapp-web-js.types';
-import { buildIncomingMessageBase, mapContactFields } from './message-mapper';
+import { buildIncomingMessageBase, mapContactFields, ackToDeliveryStatus } from './message-mapper';
 import { buildVCard } from './vcard';
 import {
   capInboundMedia,
@@ -1802,14 +1802,26 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
         continue;
       }
 
+      // Last-message preview for the sidebar. wwebjs exposes chat.lastMessage on
+      // the public object; some builds only carry it under _data. Read both.
+      const lm = chat.lastMessage as { body?: string; type?: string; fromMe?: boolean; ack?: number } | undefined;
+      const rawLm = (chat as unknown as { _data?: { lastMessage?: { body?: string; type?: string; fromMe?: boolean; ack?: number } } })._data?.lastMessage;
+      const lmBody = lm?.body ?? rawLm?.body ?? '';
+      const lmType = lm?.type ?? rawLm?.type ?? 'chat';
+      const lmFromMe = lm?.fromMe ?? rawLm?.fromMe ?? false;
+      const lmStatus = ackToDeliveryStatus(lm?.ack ?? rawLm?.ack); // for the sidebar gray/blue tick
+      const previewText = lmType === MessageTypes.LOCATION ? '📍' : lmBody || undefined;
+
       summaries.push({
         id,
         name: chat.name || id,
         isGroup: Boolean(chat.isGroup),
         unreadCount: chat.unreadCount || 0,
         timestamp: chat.timestamp || 0,
-        // A location message's body is the base64 map thumbnail; don't surface it as the chat preview.
-        lastMessage: chat.lastMessage?.type === MessageTypes.LOCATION ? '📍' : chat.lastMessage?.body || undefined,
+        lastMessage: previewText,
+        lastMessagePreview: (lmBody || lmType !== 'chat')
+          ? { body: lmBody, type: lmType, fromMe: lmFromMe, status: lmStatus }
+          : undefined,
       });
     }
 

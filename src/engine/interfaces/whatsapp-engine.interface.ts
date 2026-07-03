@@ -332,7 +332,11 @@ export interface ChatSummary {
   isGroup: boolean;
   unreadCount: number;
   timestamp: number;
+  /** Preview text of the chat's last message (empty/undefined when unknown). */
   lastMessage?: string;
+  /** Structured last-message preview for a richer sidebar (type icon, from-me
+   *  tick, and delivery status so the sidebar can show gray/blue ticks). */
+  lastMessagePreview?: { body: string; type: string; fromMe: boolean; status?: DeliveryStatus };
 }
 
 /**

@@ -337,6 +337,10 @@ export interface ChatSummary {
   /** Structured last-message preview for a richer sidebar (type icon, from-me
    *  tick, and delivery status so the sidebar can show gray/blue ticks). */
   lastMessagePreview?: { body: string; type: string; fromMe: boolean; status?: DeliveryStatus };
+  /** True when the chat cannot be written to — e.g. a group the user has left
+   *  or was removed from, or an announcement-only group. Lets the UI hide the
+   *  composer instead of silently accepting sends that will never deliver. */
+  readOnly?: boolean;
 }
 
 /**

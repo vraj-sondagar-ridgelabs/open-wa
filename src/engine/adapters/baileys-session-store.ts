@@ -322,13 +322,18 @@ export class BaileysSessionStore {
 
   private toNeutralChat(c: Chat): ChatSummary {
     const last = this.lastMessages.get(c.id);
+    const isGroup = c.id.endsWith('@g.us');
     return {
       id: this.toNeutralJid(c.id),
       name: c.name ?? this.resolveContactName(c.id),
-      isGroup: c.id.endsWith('@g.us'),
+      isGroup,
       unreadCount: c.unreadCount ?? 0,
       timestamp: last?.timestamp ?? this.toUnixSeconds(c.conversationTimestamp),
       lastMessage: last?.text,
+      // Baileys marks a group chat `readOnly` once the user leaves / is removed
+      // (also true for announcement-only groups). Surface it only for groups so
+      // the app can hide the composer; DMs are never read-only here.
+      readOnly: isGroup && c.readOnly === true,
     };
   }
 

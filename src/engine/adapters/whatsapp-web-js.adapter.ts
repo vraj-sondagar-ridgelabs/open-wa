@@ -1812,16 +1812,24 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
       const lmStatus = ackToDeliveryStatus(lm?.ack ?? rawLm?.ack); // for the sidebar gray/blue tick
       const previewText = lmType === MessageTypes.LOCATION ? '📍' : lmBody || undefined;
 
+      // A group the user has left / was removed from (or an announcement-only
+      // group) is read-only. wwebjs surfaces this as `chat.isReadOnly`; some
+      // builds only carry it under `_data.isReadOnly`. Only meaningful for groups.
+      const isGroup = Boolean(chat.isGroup);
+      const rawReadOnly = (chat as unknown as { isReadOnly?: boolean; _data?: { isReadOnly?: boolean } });
+      const readOnly = isGroup && (rawReadOnly.isReadOnly ?? rawReadOnly._data?.isReadOnly ?? false) === true;
+
       summaries.push({
         id,
         name: chat.name || id,
-        isGroup: Boolean(chat.isGroup),
+        isGroup,
         unreadCount: chat.unreadCount || 0,
         timestamp: chat.timestamp || 0,
         lastMessage: previewText,
         lastMessagePreview: (lmBody || lmType !== 'chat')
           ? { body: lmBody, type: lmType, fromMe: lmFromMe, status: lmStatus }
           : undefined,
+        readOnly,
       });
     }
 

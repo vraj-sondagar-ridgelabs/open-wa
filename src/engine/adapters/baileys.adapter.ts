@@ -282,6 +282,19 @@ export class BaileysAdapter implements IWhatsAppEngine {
     });
     // WhatsApp pushes this when a lid contact shares its phone number - a direct lid->phone pair.
     sock.ev.on('chats.phoneNumberShare', ({ lid, jid }) => this.sessionStore.addLidMappings([{ lid, pn: jid }]));
+    // Group metadata carries the subject (display name). Baileys delivers it via
+    // groups.upsert (full metadata, e.g. on join) and groups.update (partial, e.g.
+    // a rename) — NOT via chats.*. Without these, a group with no synced title falls
+    // back to its numeric @g.us id in the chat list. Fold subject → chat.name so the
+    // list shows the real group name.
+    const upsertGroupNames = (groups: Array<{ id?: string; subject?: string }>) => {
+      const named = (groups ?? [])
+        .filter(g => g?.id && g.subject)
+        .map(g => ({ id: g.id as string, name: g.subject as string }));
+      if (named.length) this.sessionStore.upsertChats(named);
+    };
+    sock.ev.on('groups.upsert', groups => upsertGroupNames(groups));
+    sock.ev.on('groups.update', updates => upsertGroupNames(updates));
   }
 
   private handleConnectionUpdate(update: {

@@ -325,7 +325,10 @@ export class BaileysSessionStore {
     const isGroup = c.id.endsWith('@g.us');
     return {
       id: this.toNeutralJid(c.id),
-      name: c.name ?? this.resolveContactName(c.id),
+      // For groups the subject lives in c.name (fed by groups.upsert/update +
+      // hydrateNames). If it hasn't synced yet, DON'T fall back to the numeric
+      // @g.us id — show a neutral placeholder instead of a raw id.
+      name: isGroup ? (c.name ?? 'Group') : (c.name ?? this.resolveContactName(c.id)),
       isGroup,
       unreadCount: c.unreadCount ?? 0,
       timestamp: last?.timestamp ?? this.toUnixSeconds(c.conversationTimestamp),

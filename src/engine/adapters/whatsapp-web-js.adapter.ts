@@ -1821,7 +1821,10 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
 
       summaries.push({
         id,
-        name: chat.name || id,
+        // Don't fall back to the raw serialized id — for a group with no synced
+        // subject that shows the numeric @g.us id in the list. Use a neutral
+        // placeholder instead ("Group" for groups, the number for a bare DM).
+        name: chat.name || (isGroup ? 'Group' : id),
         isGroup,
         unreadCount: chat.unreadCount || 0,
         timestamp: chat.timestamp || 0,

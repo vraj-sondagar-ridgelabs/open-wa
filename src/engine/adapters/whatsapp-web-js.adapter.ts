@@ -1650,11 +1650,22 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
     messageId: string,
   ): Promise<{ base64: string; mimetype: string; filename?: string } | null> {
     this.ensureReady();
-    const message = await this.findMessageInChat(chatId, messageId);
-    if (!message.hasMedia) return null;
-    const media = await message.downloadMedia();
-    if (!media?.data) return null;
-    return { base64: media.data, mimetype: media.mimetype, filename: media.filename ?? undefined };
+    // wwebjs' fetchMessages()/downloadMedia() run inside the WA Web page via
+    // puppeteer.evaluate and THROW for @lid chats, expired media, or when the
+    // message isn't in the last-100 window. An unhandled throw bubbles up as a
+    // 500 (ExceptionsHandler) and the client retries forever. Swallow it and
+    // return null → the controller answers 404 "media unavailable", which the
+    // client handles cleanly (cool-off, no retry storm).
+    try {
+      const message = await this.findMessageInChat(chatId, messageId);
+      if (!message.hasMedia) return null;
+      const media = await message.downloadMedia();
+      if (!media?.data) return null;
+      return { base64: media.data, mimetype: media.mimetype, filename: media.filename ?? undefined };
+    } catch (error) {
+      this.logger.warn(`Media download failed for ${messageId} in ${chatId}: ${String(error)}`);
+      return null;
+    }
   }
 
   // Get Profile Picture
